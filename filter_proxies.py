@@ -1,9 +1,8 @@
-import yaml
 import requests
 import time
 import socket
 from base64 import b64decode, b64encode
-import sys
+import yaml
 
 print("=" * 50)
 print("Starting proxy filter...")
@@ -14,125 +13,119 @@ OUTPUT_FILE = "BLACK_VLESS_RUS_FILTERED.txt"
 TOP_N = 15
 TIMEOUT = 3
 
-try:
+def get_latency_from_proxy(proxy_line):
+    """Extract host:port from proxy line and test latency"""
+    try:
+        # Try to parse vless:// or other proxy formats
+        if "://" in proxy_line:
+            # Extract from vless://user@host:port or similar
+            parts = proxy_line.split("://")
+            if len(parts) > 1:
+                auth_host = parts[1]
+                if "@" in auth_host:
+                    host_port = auth_host.split("@")[-1]
+                else:
+                    host_port = auth_host
+                
+                # Remove path and query params
+                host_port = host_port.split("/")[0].split("?")[0]
+                
+                if ":" in host_port:
+                    host, port = host_port.rsplit(":", 1)
+                    port = int(port)
+                    
+                    # Test connection
+                    start = time.time()
+                    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    sock.settimeout(TIMEOUT)
+                    sock.connect((host, port))
+                    sock.close()
+                    return int((time.time() - start) * 1000)
+    except Exception:
+        pass
+    
+    return None
+
+def main():
     print("Step 1: Downloading subscription...")
     print("  URL:", SUBSCRIPTION_URL)
     
-    headers = {
-        'User-Agent': 'ClashMeta/1.19.24'
-    }
-    response = requests.get(SUBSCRIPTION_URL, headers=headers, timeout=30)
-    print("  Status code:", response.status_code)
-    print("  Response length:", len(response.text), "bytes")
-    
-    if response.status_code != 200:
-        print("  ERROR: Failed to download, status code:", response.status_code)
-        sys.exit(1)
-    
-    raw_data = response.text.strip()
-    print("  Raw data length:", len(raw_data))
-    
-except Exception as e:
-    print("  ERROR: Download failed:", str(e))
-    sys.exit(1)
-
-try:
-    print("Step 2: Decoding base64...")
-    decoded_bytes = b64decode(raw_data)
-    print("  Decoded bytes:", len(decoded_bytes))
-    
-    decoded_str = decoded_bytes.decode('utf-8', errors='ignore')
-    print("  Decoded string length:", len(decoded_str))
-    
-    config = yaml.safe_load(decoded_str)
-    print("  YAML loaded successfully")
-    
-except Exception as e:
-    print("  ERROR: Decode failed:", str(e))
-    print("  Trying alternative parsing...")
     try:
-        config = yaml.safe_load(raw_data)
-        print("  Alternative parsing successful")
-    except Exception as e2:
-        print("  ERROR: Alternative parsing also failed:", str(e2))
-        sys.exit(1)
-
-proxies = config.get("proxies", []) if config else []
-print("Step 3: Found", len(proxies), "proxies")
-
-if not proxies:
-    print("  ERROR: No proxies found in config")
-    print("  Config keys:", list(config.keys()) if config else "None")
-    sys.exit(1)
-
-print("Step 4: Testing latency...")
-results = []
-
-for i, p in enumerate(proxies, 1):
-    name = p.get("name", "Unknown")
-    host = p.get("server")
-    port = p.get("port", 443)
-    
-    if not host:
-        print("  [", i, "/", len(proxies), "] SKIP (no host):", name)
-        continue
-    
-    try:
-        start = time.time()
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(TIMEOUT)
-        sock.connect((host, port))
-        sock.close()
-        latency = int((time.time() - start) * 1000)
+        response = requests.get(SUBSCRIPTION_URL, timeout=30)
+        print("  Status code:", response.status_code)
+        print("  Response length:", len(response.text), "bytes")
         
-        results.append((p, latency))
-        print("  [", i, "/", len(proxies), "] OK", latency, "ms:", name)
+        if response.status_code != 200:
+            print("  ERROR: Failed to download")
+            return
+        
+        # Try to decode as base64 first
+        try:
+            decoded = b64decode(response.text.strip()).decode('utf-8', errors='ignore')
+            proxy_lines = decoded.strip().split('\n')
+            print("  Decoded from base64")
+        except Exception:
+            # If not base64, use as is
+            proxy_lines = response.text.strip().split('\n')
+            print("  Using raw text")
+        
+        print("  Total lines:", len(proxy_lines))
         
     except Exception as e:
-        print("  [", i, "/", len(proxies), "] FAIL:", name, "-", str(e))
+        print("  ERROR:", str(e))
+        return
+
+    print("Step 2: Testing latency...")
+    results = []
     
-    time.sleep(0.05)
+    for i, line in enumerate(proxy_lines, 1):
+        line = line.strip()
+        if not line or line.startswith('#'):
+            continue
+        
+        # Get a name for display
+        name = line.split("://")[0] if "://" in line else "proxy"
+        if "#" in line:
+            name = line.split("#")[-1]
+        
+        latency = get_latency_from_proxy(line)
+        
+        if latency is not None:
+            results.append((line, latency, name))
+            print("  [", i, "/", len(proxy_lines), "] OK", latency, "ms:", name)
+        else:
+            print("  [", i, "/", len(proxy_lines), "] FAIL:", name)
+        
+        time.sleep(0.05)
 
-if not results:
-    print("  ERROR: No working proxies found")
-    sys.exit(1)
+    if not results:
+        print("  ERROR: No working proxies found")
+        return
 
-print("Step 5: Sorting by latency...")
-results.sort(key=lambda x: x[1])
+    print("Step 3: Sorting by latency...")
+    results.sort(key=lambda x: x[1])
 
-top_proxies = [p for p, _ in results[:TOP_N]]
+    top_proxies = results[:TOP_N]
 
-print("Step 6: Top", TOP_N, "proxies:")
-for i, (p, latency) in enumerate(results[:TOP_N], 1):
-    name = p.get("name", "Unknown")
-    print("  ", i, ".", name, "-", latency, "ms")
+    print("Step 4: Top", TOP_N, "proxies:")
+    for i, (proxy, latency, name) in enumerate(top_proxies, 1):
+        print("  ", i, ".", name, "-", latency, "ms")
 
-print("Step 7: Saving filtered subscription...")
-output = {"proxies": top_proxies}
-
-try:
-    yaml_str = yaml.dump(output, default_flow_style=False, sort_keys=False, allow_unicode=True)
-    print("  YAML string length:", len(yaml_str))
+    print("Step 5: Saving filtered subscription...")
     
-    yaml_bytes = yaml_str.encode('utf-8')
-    print("  YAML bytes:", len(yaml_bytes))
-    
-    encoded_bytes = b64encode(yaml_bytes)
-    print("  Encoded bytes:", len(encoded_bytes))
-    
-    encoded_str = encoded_bytes.decode('ascii')
-    print("  Encoded string:", len(encoded_str))
+    # Save in base64 encoded format (standard for subscription)
+    output_lines = [proxy for proxy, _, _ in top_proxies]
+    output_text = '\n'.join(output_lines)
+    encoded = b64encode(output_text.encode('utf-8')).decode('ascii')
     
     with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
-        f.write(encoded_str)
+        f.write(encoded)
     
-    print("  File saved successfully!")
-    print("  Output file:", OUTPUT_FILE)
-    
-except Exception as e:
-    print("  ERROR: Save failed:", str(e))
-    sys.exit(1)
+    print("  Saved to", OUTPUT_FILE)
+    print("  Total proxies:", len(top_proxies))
+    print("=" * 50)
+    print("Done!")
+    print("=" * 50)
 
-print("=" * 50)
-print("Done!")
-print("=" * 50)
+if __name__ == "__main__":
+    main()
