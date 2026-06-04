@@ -14,7 +14,7 @@ jobs:
       with:
         python-version: '3.11'
     - run: pip install requests pyyaml
-    - run: python filter_proxies_simple.py
+    - run: python filter_proxies.py
     - run: |
         git config user.name "GitHub Actions"
         git config user.email "actions@github.com"
