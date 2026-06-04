@@ -1,38 +1,37 @@
 import requests
 import time
-import socket
 from base64 import b64decode, b64encode
 
 print("=" * 50)
-print("Starting proxy filter...")
+print("Starting proxy filter (Russia check)...")
 print("=" * 50)
 
 SUBSCRIPTION_URL = "https://raw.githack.com/igareck/vpn-configs-for-russia/main/BLACK_VLESS_RUS_mobile.txt"
 OUTPUT_FILE = "BLACK_VLESS_RUS_FILTERED.txt"
-TOP_N = 5
-TIMEOUT = 3
+TOP_N = 10
+TIMEOUT = 10
+TEST_URL = "http://yandex.ru"
 
-# Список разрешенных стран (только те, что работают из России)
-ALLOWED_COUNTRIES = [
-    "Austria",
-    "Germany", 
-    "Netherlands",
-    "Finland",
-    "Poland",
-    "Armenia",
-    "Hungary",
-    "Turkey"
-]
-
-def get_latency(host, port):
+def test_proxy_via_http(proxy_line):
+    """Test proxy by making HTTP request through it to Russian site"""
     try:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(TIMEOUT)
+        # Create proxy dict for requests
+        proxies = {
+            'http': proxy_line,
+            'https': proxy_line
+        }
+        
+        # Test by making request to Yandex
         start = time.time()
-        sock.connect((host, port))
-        sock.close()
-        return int((time.time() - start) * 1000)
-    except:
+        response = requests.get(TEST_URL, proxies=proxies, timeout=TIMEOUT, allow_redirects=True)
+        latency = int((time.time() - start) * 1000)
+        
+        if response.status_code == 200:
+            return latency
+        else:
+            return None
+            
+    except Exception as e:
         return None
 
 def main():
@@ -59,76 +58,44 @@ def main():
         print("ERROR:", str(e))
         return
 
-    print("Step 2: Filtering by country...")
-    filtered_lines = []
+    print("Step 2: Testing proxies via HTTP to Yandex...")
+    results = []
     
-    for line in proxy_lines:
+    for i, line in enumerate(proxy_lines, 1):
         line = line.strip()
         if not line or line.startswith('#'):
             continue
         
-        # Проверяем, есть ли в названии разрешенная страна
-        for country in ALLOWED_COUNTRIES:
-            if country in line:
-                filtered_lines.append(line)
-                break
-    
-    print("Filtered proxies:", len(filtered_lines))
-
-    if not filtered_lines:
-        print("ERROR: No proxies from allowed countries")
-        return
-
-    print("Step 3: Testing latency...")
-    results = []
-    
-    for i, line in enumerate(filtered_lines, 1):
         name = line.split("://")[0] if "://" in line else "proxy"
         if "#" in line:
             name = line.split("#")[-1]
         
-        if "://" in line:
-            parts = line.split("://")
-            if len(parts) > 1:
-                auth_host = parts[1]
-                if "@" in auth_host:
-                    host_port = auth_host.split("@")[-1]
-                else:
-                    host_port = auth_host
-                
-                host_port = host_port.split("/")[0].split("?")[0]
-                
-                if ":" in host_port:
-                    host, port = host_port.rsplit(":", 1)
-                    try:
-                        port = int(port)
-                    except:
-                        port = 443
-                    
-                    latency = get_latency(host, port)
-                    
-                    if latency is not None:
-                        results.append((line, latency, name))
-                        print(i, name, latency, "ms")
-                    else:
-                        print(i, "FAIL:", name)
+        print(i, "Testing:", name, "...", end=" ")
         
-        time.sleep(0.05)
+        latency = test_proxy_via_http(line)
+        
+        if latency is not None:
+            results.append((line, latency, name))
+            print("OK", latency, "ms")
+        else:
+            print("FAIL")
+        
+        time.sleep(0.1)
 
     if not results:
         print("ERROR: No working proxies found")
         return
 
-    print("Step 4: Sorting...")
+    print("Step 3: Sorting by latency...")
     results.sort(key=lambda x: x[1])
 
     top_proxies = results[:TOP_N]
 
-    print("Step 5: Top", TOP_N, "proxies:")
+    print("Step 4: Top", TOP_N, "working proxies:")
     for i, (proxy, latency, name) in enumerate(top_proxies, 1):
         print(i, name, "-", latency, "ms")
 
-    print("Step 6: Saving...")
+    print("Step 5: Saving...")
     try:
         output_lines = [proxy for proxy, _, _ in top_proxies]
         output_text = '\n'.join(output_lines)
