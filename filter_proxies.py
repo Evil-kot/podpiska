@@ -80,4 +80,4 @@ def test_tcp_connect(proxy_line):
 def main():
     print("Step 1: Downloading subscription...")
     try:
-        response = requests.get(SUBSCRIPTION_URL, timeout=30
+        response = requests.get(SUBSCRIPTION_URL, timeout=30)
