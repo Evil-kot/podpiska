@@ -10,7 +10,7 @@ print("=" * 50)
 
 SUBSCRIPTION_URL = "https://raw.githack.com/igareck/vpn-configs-for-russia/main/BLACK_VLESS_RUS_mobile.txt"
 OUTPUT_FILE = "BLACK_VLESS_RUS_FILTERED.txt"
-TOP_N = 15
+TOP_N = 5
 TIMEOUT = 5
 
 def test_proxy_via_http(proxy_line):
