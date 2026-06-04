@@ -1,9 +1,10 @@
 import requests
 import time
+import subprocess
 from base64 import b64decode, b64encode
 
 print("=" * 50)
-print("Starting proxy filter (Russia check)...")
+print("Starting proxy filter with curl test...")
 print("=" * 50)
 
 SUBSCRIPTION_URL = "https://raw.githack.com/igareck/vpn-configs-for-russia/main/BLACK_VLESS_RUS_mobile.txt"
@@ -12,21 +13,47 @@ TOP_N = 10
 TIMEOUT = 10
 TEST_URL = "http://yandex.ru"
 
-def test_proxy_via_http(proxy_line):
-    """Test proxy by making HTTP request through it to Russian site"""
+def test_proxy_with_curl(proxy_line):
+    """Test proxy using curl command with SOCKS5"""
     try:
-        # Create proxy dict for requests
-        proxies = {
-            'http': proxy_line,
-            'https': proxy_line
-        }
+        # Parse proxy URL to extract host and port
+        if "://" not in proxy_line:
+            return None
         
-        # Test by making request to Yandex
+        protocol = proxy_line.split("://")[0]
+        rest = proxy_line.split("://")[1]
+        
+        # Extract host:port
+        if "@" in rest:
+            host_port = rest.split("@")[-1]
+        else:
+            host_port = rest
+        
+        # Remove path and query params
+        host_port = host_port.split("/")[0].split("?")[0]
+        
+        if ":" not in host_port:
+            return None
+        
+        host, port = host_port.rsplit(":", 1)
+        
+        # Build curl command with SOCKS5 proxy
+        cmd = [
+            'curl',
+            '-x', f'socks5://{host}:{port}',
+            '--max-time', str(TIMEOUT),
+            '-o', '/dev/null',
+            '-w', '%{http_code}',
+            '-s',
+            TEST_URL
+        ]
+        
         start = time.time()
-        response = requests.get(TEST_URL, proxies=proxies, timeout=TIMEOUT, allow_redirects=True)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=TIMEOUT + 5)
         latency = int((time.time() - start) * 1000)
         
-        if response.status_code == 200:
+        # Check if curl succeeded (HTTP 200 or 301/302 for redirects)
+        if result.returncode == 0 and result.stdout.strip() in ['200', '301', '302']:
             return latency
         else:
             return None
@@ -58,7 +85,7 @@ def main():
         print("ERROR:", str(e))
         return
 
-    print("Step 2: Testing proxies via HTTP to Yandex...")
+    print("Step 2: Testing proxies with curl...")
     results = []
     
     for i, line in enumerate(proxy_lines, 1):
@@ -70,9 +97,9 @@ def main():
         if "#" in line:
             name = line.split("#")[-1]
         
-        print(i, "Testing:", name, "...", end=" ")
+        print(i, "Testing:", name, "...", end=" ", flush=True)
         
-        latency = test_proxy_via_http(line)
+        latency = test_proxy_with_curl(line)
         
         if latency is not None:
             results.append((line, latency, name))
