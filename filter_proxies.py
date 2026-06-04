@@ -39,7 +39,7 @@ def ping_server(server):
         return None
 
 def filter_proxies():
-    print(f"Downloading subscription: {SUBSCRIPTION_URL}")
+    print("Downloading subscription: " + SUBSCRIPTION_URL)
     config = decode_subscription(SUBSCRIPTION_URL)
     
     if not config or 'proxies' not in config:
@@ -47,7 +47,7 @@ def filter_proxies():
         return
     
     proxies = config['proxies']
-    print(f"Total proxies: {len(proxies)}")
+    print("Total proxies: " + str(len(proxies)))
     
     print("Pinging proxies...")
     results = []
@@ -58,9 +58,9 @@ def filter_proxies():
         
         if latency is not None:
             results.append((proxy, latency))
-            print(f"  [{i}/{len(proxies)}] OK {name}: {latency:.0f}ms")
+            print("  [" + str(i) + "/" + str(len(proxies)) + "] OK " + name + ": " + str(int(latency)) + "ms")
         else:
-            print(f"  [{i}/{len(proxies)}] FAIL {name}: timeout")
+            print("  [" + str(i) + "/" + str(len(proxies)) + "] FAIL " + name + ": timeout")
         
         time.sleep(0.1)
     
@@ -68,9 +68,10 @@ def filter_proxies():
     
     top_proxies = [proxy for proxy, _ in results[:TOP_N]]
     
-    print(f"\nTop {TOP_N} proxies:")
+    print("")
+    print("Top " + str(TOP_N) + " proxies:")
     for i, (proxy, latency) in enumerate(results[:TOP_N], 1):
-        print(f"  {i}. {proxy.get('name')}: {latency:.0f}ms")
+        print("  " + str(i) + ". " + proxy.get('name') + ": " + str(int(latency)) + "ms")
     
     filtered_config = {
         'proxies': top_proxies
@@ -82,7 +83,8 @@ def filter_proxies():
     with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
         f.write(encoded)
     
-    print(f"\nSaved to {OUTPUT_FILE}")
+    print("")
+    print("Saved to " + OUTPUT_FILE)
 
 if __name__ == "__main__":
     filter_proxies()
