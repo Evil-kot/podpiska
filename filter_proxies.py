@@ -2,7 +2,6 @@ import requests
 import time
 import socket
 from base64 import b64decode, b64encode
-import yaml
 
 print("=" * 50)
 print("Starting proxy filter...")
@@ -10,49 +9,58 @@ print("=" * 50)
 
 SUBSCRIPTION_URL = "https://raw.githack.com/igareck/vpn-configs-for-russia/main/BLACK_VLESS_RUS_mobile.txt"
 OUTPUT_FILE = "BLACK_VLESS_RUS_FILTERED.txt"
-TOP_N = 5
-TIMEOUT = 5
+TOP_N = 15
+TIMEOUT = 3
 
-def test_proxy_via_http(proxy_line):
-    """Test proxy by making HTTP request through it"""
+def get_latency(host, port):
     try:
-        # Parse proxy URL
-        if "://" not in proxy_line:
-            return None
-        
-        protocol = proxy_line.split("://")[0]
-        
-        # For vless, vmess, trojan - use requests with proxy
-        if protocol in ['vless', 'vmess', 'trojan', 'ss', 'ssr']:
-            # Create proxy dict for requests
-            proxy_url = proxy_line  # Use full URL
-            
-            # Test by making request to a known working site
-            test_url = "https://httpbin.org/ip"
-            
-            proxies = {
-                'http': proxy_url,
-                'https': proxy_url
-            }
-            
-            start = time.time()
-            response = requests.get(test_url, proxies=proxies, timeout=TIMEOUT)
-            latency = int((time.time() - start) * 1000)
-            
-            if response.status_code == 200:
-                return latency
-        else:
-            # For other protocols, try TCP connect
-            return test_tcp_connect(proxy_line)
-            
-    except Exception as e:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(TIMEOUT)
+        start = time.time()
+        sock.connect((host, port))
+        sock.close()
+        return int((time.time() - start) * 1000)
+    except:
         return None
 
-def test_tcp_connect(proxy_line):
-    """Fallback: test TCP connection"""
+def main():
+    print("Step 1: Downloading subscription...")
     try:
-        if "://" in proxy_line:
-            parts = proxy_line.split("://")
+        response = requests.get(SUBSCRIPTION_URL, timeout=30)
+        print("Status:", response.status_code)
+        
+        if response.status_code != 200:
+            print("ERROR: Failed to download")
+            return
+        
+        try:
+            decoded = b64decode(response.text.strip()).decode('utf-8', errors='ignore')
+            proxy_lines = decoded.strip().split('\n')
+            print("Decoded from base64")
+        except:
+            proxy_lines = response.text.strip().split('\n')
+            print("Using raw text")
+        
+        print("Total lines:", len(proxy_lines))
+        
+    except Exception as e:
+        print("ERROR:", str(e))
+        return
+
+    print("Step 2: Testing proxies...")
+    results = []
+    
+    for i, line in enumerate(proxy_lines, 1):
+        line = line.strip()
+        if not line or line.startswith('#'):
+            continue
+        
+        name = line.split("://")[0] if "://" in line else "proxy"
+        if "#" in line:
+            name = line.split("#")[-1]
+        
+        if "://" in line:
+            parts = line.split("://")
             if len(parts) > 1:
                 auth_host = parts[1]
                 if "@" in auth_host:
@@ -64,20 +72,52 @@ def test_tcp_connect(proxy_line):
                 
                 if ":" in host_port:
                     host, port = host_port.rsplit(":", 1)
-                    port = int(port)
+                    try:
+                        port = int(port)
+                    except:
+                        port = 443
                     
-                    start = time.time()
-                    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                    sock.settimeout(TIMEOUT)
-                    sock.connect((host, port))
-                    sock.close()
-                    return int((time.time() - start) * 1000)
-    except Exception:
-        pass
-    
-    return None
+                    latency = get_latency(host, port)
+                    
+                    if latency is not None:
+                        results.append((line, latency, name))
+                        print(i, name, latency, "ms")
+                    else:
+                        print(i, "FAIL:", name)
+        
+        time.sleep(0.05)
 
-def main():
-    print("Step 1: Downloading subscription...")
+    if not results:
+        print("ERROR: No working proxies found")
+        return
+
+    print("Step 3: Sorting...")
+    results.sort(key=lambda x: x[1])
+
+    top_proxies = results[:TOP_N]
+
+    print("Step 4: Top", TOP_N, "proxies:")
+    for i, (proxy, latency, name) in enumerate(top_proxies, 1):
+        print(i, name, "-", latency, "ms")
+
+    print("Step 5: Saving...")
     try:
-        response = requests.get(SUBSCRIPTION_URL, timeout=30)
+        output_lines = [proxy for proxy, _, _ in top_proxies]
+        output_text = '\n'.join(output_lines)
+        encoded = b64encode(output_text.encode('utf-8')).decode('ascii')
+        
+        with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
+            f.write(encoded)
+        
+        print("Saved to", OUTPUT_FILE)
+        print("Total proxies:", len(top_proxies))
+    except Exception as e:
+        print("ERROR saving:", str(e))
+        return
+
+    print("=" * 50)
+    print("Done!")
+    print("=" * 50)
+
+if __name__ == "__main__":
+    main()
