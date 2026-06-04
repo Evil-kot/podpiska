@@ -12,6 +12,18 @@ OUTPUT_FILE = "BLACK_VLESS_RUS_FILTERED.txt"
 TOP_N = 15
 TIMEOUT = 3
 
+# Список разрешенных стран (только те, что работают из России)
+ALLOWED_COUNTRIES = [
+    "Austria",
+    "Germany", 
+    "Netherlands",
+    "Finland",
+    "Poland",
+    "Armenia",
+    "Hungary",
+    "Turkey"
+]
+
 def get_latency(host, port):
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -47,14 +59,30 @@ def main():
         print("ERROR:", str(e))
         return
 
-    print("Step 2: Testing proxies...")
-    results = []
+    print("Step 2: Filtering by country...")
+    filtered_lines = []
     
-    for i, line in enumerate(proxy_lines, 1):
+    for line in proxy_lines:
         line = line.strip()
         if not line or line.startswith('#'):
             continue
         
+        # Проверяем, есть ли в названии разрешенная страна
+        for country in ALLOWED_COUNTRIES:
+            if country in line:
+                filtered_lines.append(line)
+                break
+    
+    print("Filtered proxies:", len(filtered_lines))
+
+    if not filtered_lines:
+        print("ERROR: No proxies from allowed countries")
+        return
+
+    print("Step 3: Testing latency...")
+    results = []
+    
+    for i, line in enumerate(filtered_lines, 1):
         name = line.split("://")[0] if "://" in line else "proxy"
         if "#" in line:
             name = line.split("#")[-1]
@@ -91,16 +119,16 @@ def main():
         print("ERROR: No working proxies found")
         return
 
-    print("Step 3: Sorting...")
+    print("Step 4: Sorting...")
     results.sort(key=lambda x: x[1])
 
     top_proxies = results[:TOP_N]
 
-    print("Step 4: Top", TOP_N, "proxies:")
+    print("Step 5: Top", TOP_N, "proxies:")
     for i, (proxy, latency, name) in enumerate(top_proxies, 1):
         print(i, name, "-", latency, "ms")
 
-    print("Step 5: Saving...")
+    print("Step 6: Saving...")
     try:
         output_lines = [proxy for proxy, _, _ in top_proxies]
         output_text = '\n'.join(output_lines)
