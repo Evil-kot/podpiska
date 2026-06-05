@@ -13,7 +13,7 @@ SUBSCRIPTIONS = [
         "name": "Main Subscription"
     },
     {
-        "url": "https://raw.githack.com/igareck/vpn-configs-for-russia/main/BLACK_VLESS_RUS.txt", # <-- ЗАМЕНИ НА URL ВТОРОЙ ПОДПИСКИ
+        "url": "https://raw.githubusercontent.com/zieng2/wl/main/vless_universal.txt",
         "output": "MOBILE_BYPASS_FILTERED.txt",
         "name": "Second Subscription"
     }
