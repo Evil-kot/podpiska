@@ -2,27 +2,42 @@ import requests
 import time
 import socket
 from base64 import b64decode, b64encode
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# --- НАСТРОЙКИ ---
-# Добавь сюда свои подписки. Для каждой укажи URL, имя выходного файла и название для лога.
+print("=" * 50)
+print("Starting dual subscription filter...")
+print("=" * 50)
+
+# Настройки для двух подписок
 SUBSCRIPTIONS = [
     {
         "url": "https://raw.githack.com/igareck/vpn-configs-for-russia/main/BLACK_VLESS_RUS_mobile.txt",
         "output": "BLACK_VLESS_RUS_FILTERED.txt",
-        "name": "Main Subscription"
+        "name": "BLACK (mobile)",
+        "top_n": 5,
+        "filter_countries": True  # Фильтровать по странам
     },
     {
-        "url": "https://raw.githubusercontent.com/zieng2/wl/main/vless_universal.txt",
-        "output": "MOBILE_BYPASS_FILTERED.txt",
-        "name": "Second Subscription"
+        "url": "https://raw.githack.com/igareck/vpn-configs-for-russia/main/BLACK_VLESS_RUS.txt",
+        "output": "WHITE_LIST_FILTERED.txt",
+        "name": "WHITE (bypass)",
+        "top_n": 15,
+        "filter_countries": False  # Без фильтра по странам
     }
 ]
 
-TOP_N = 5
 TIMEOUT = 3
-MAX_WORKERS = 20
-# -----------------
+
+# Список разрешенных стран (только для BLACK подписки)
+ALLOWED_COUNTRIES = [
+    "Austria",
+    "Germany", 
+    "Netherlands",
+    "Finland",
+    "Poland",
+    "Armenia",
+    "Hungary",
+    "Turkey"
+]
 
 def get_latency(host, port):
     try:
@@ -35,85 +50,118 @@ def get_latency(host, port):
     except:
         return None
 
-def test_proxy(line):
-    if "://" not in line:
-        return None
-    name = line.split("://")[0]
-    if "#" in line:
-        name = line.split("#")[-1]
-    parts = line.split("://")[1]
-    if "@" in parts:
-        host_port = parts.split("@")[-1]
-    else:
-        host_port = parts
-    host_port = host_port.split("/")[0].split("?")[0]
-    if ":" not in host_port:
-        return None
-    host, port = host_port.rsplit(":", 1)
-    try:
-        port = int(port)
-    except:
-        port = 443
-    latency = get_latency(host, port)
-    if latency:
-        return (line, latency, name)
-    return None
-
-def process_subscription(sub_info):
-    url = sub_info["url"]
-    output_file = sub_info["output"]
-    name = sub_info["name"]
+def process_subscription(sub_config):
+    url = sub_config["url"]
+    output_file = sub_config["output"]
+    name = sub_config["name"]
+    top_n = sub_config["top_n"]
+    filter_countries = sub_config["filter_countries"]
     
-    print(f"\n{'='*50}")
+    print("\n" + "=" * 50)
     print(f"Processing: {name}")
-    print(f"{'='*50}")
+    print("=" * 50)
     
-    print(f"Downloading {name}...")
+    print("Step 1: Downloading subscription...")
     try:
         response = requests.get(url, timeout=30)
+        print("  Status:", response.status_code)
+        
         if response.status_code != 200:
-            print(f"ERROR: Failed to download {name}")
+            print("  ERROR: Failed to download")
             return
         
         try:
             decoded = b64decode(response.text.strip()).decode('utf-8', errors='ignore')
             proxy_lines = decoded.strip().split('\n')
+            print("  Decoded from base64")
         except:
             proxy_lines = response.text.strip().split('\n')
+            print("  Using raw text")
         
-        print(f"Found {len(proxy_lines)} proxies")
+        print("  Total lines:", len(proxy_lines))
+        
     except Exception as e:
-        print(f"ERROR: {str(e)}")
+        print("  ERROR:", str(e))
         return
 
-    print(f"Testing proxies (parallel, {MAX_WORKERS} workers)...")
+    print("Step 2: Filtering...")
+    filtered_lines = []
+    
+    for line in proxy_lines:
+        line = line.strip()
+        if not line or line.startswith('#'):
+            continue
+        
+        if filter_countries:
+            # Фильтруем по странам
+            country_found = False
+            for country in ALLOWED_COUNTRIES:
+                if country in line:
+                    filtered_lines.append(line)
+                    country_found = True
+                    break
+            if not country_found:
+                continue
+        else:
+            # Берём все сервера
+            filtered_lines.append(line)
+    
+    print("  Filtered proxies:", len(filtered_lines))
+
+    if not filtered_lines:
+        print("  ERROR: No proxies after filtering")
+        return
+
+    print("Step 3: Testing latency...")
     results = []
     
-    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        future_to_proxy = {executor.submit(test_proxy, line): line for line in proxy_lines if line.strip()}
+    for i, line in enumerate(filtered_lines, 1):
+        name_proxy = line.split("://")[0] if "://" in line else "proxy"
+        if "#" in line:
+            name_proxy = line.split("#")[-1]
         
-        completed = 0
-        for future in as_completed(future_to_proxy):
-            completed += 1
-            result = future.result()
-            if result:
-                results.append(result)
-                print(f"  [{completed}/{len(proxy_lines)}] OK {result[1]}ms: {result[2]}")
-            else:
-                print(f"  [{completed}/{len(proxy_lines)}] FAIL")
+        if "://" in line:
+            parts = line.split("://")
+            if len(parts) > 1:
+                auth_host = parts[1]
+                if "@" in auth_host:
+                    host_port = auth_host.split("@")[-1]
+                else:
+                    host_port = auth_host
+                
+                host_port = host_port.split("/")[0].split("?")[0]
+                
+                if ":" in host_port:
+                    host, port = host_port.rsplit(":", 1)
+                    try:
+                        port = int(port)
+                    except:
+                        port = 443
+                    
+                    latency = get_latency(host, port)
+                    
+                    if latency is not None:
+                        results.append((line, latency, name_proxy))
+                        print("  ", i, name_proxy, latency, "ms")
+                    else:
+                        print("  ", i, "FAIL:", name_proxy)
+        
+        time.sleep(0.05)
 
     if not results:
-        print(f"ERROR: No working proxies found for {name}")
+        print("  ERROR: No working proxies found")
         return
 
+    print("Step 4: Sorting...")
     results.sort(key=lambda x: x[1])
-    top_proxies = results[:TOP_N]
 
-    print(f"Top {TOP_N} proxies for {name}:")
+    top_proxies = results[:top_n]
+
+    print("Step 5: Top", top_n, "proxies for", name + ":")
     for i, (proxy, latency, proxy_name) in enumerate(top_proxies, 1):
-        print(f"  {i}. {proxy_name} - {latency}ms")
+        print("  ", i, proxy_name, "-", latency, "ms")
 
-    print(f"Saving to {output_file}...")
+    print("Step 6: Saving to", output_file + "...")
     try:
         output_lines = [proxy for proxy, _, _ in top_proxies]
         output_text = '\n'.join(output_lines)
@@ -122,17 +170,19 @@ def process_subscription(sub_info):
         with open(output_file, 'w', encoding='utf-8') as f:
             f.write(encoded)
         
-        print(f"Saved {len(top_proxies)} proxies to {output_file}")
+        print("  Saved to", output_file)
+        print("  Total proxies:", len(top_proxies))
     except Exception as e:
-        print(f"ERROR saving: {str(e)}")
+        print("  ERROR saving:", str(e))
+        return
 
 def main():
-    print("Starting multi-subscription filter...")
     for sub in SUBSCRIPTIONS:
         process_subscription(sub)
-    print("\n" + "="*50)
-    print("All done!")
-    print("="*50)
+    
+    print("\n" + "=" * 50)
+    print("All subscriptions processed!")
+    print("=" * 50)
 
 if __name__ == "__main__":
     main()
