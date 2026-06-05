@@ -19,15 +19,10 @@ jobs:
     
     - run: python filter_proxies.py
     
-    - name: Commit and push if file exists
+    - name: Commit and push if files exist
       run: |
-        if [ -f BLACK_VLESS_RUS_FILTERED.txt ]; then
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
-          git add BLACK_VLESS_RUS_FILTERED.txt
-          git diff --staged --quiet || git commit -m "Update filtered proxies"
-          git push
-        else
-          echo "Error: BLACK_VLESS_RUS_FILTERED.txt was not created"
-          exit 1
-        fi
+        git config user.name "GitHub Actions"
+        git config user.email "actions@github.com"
+        git add BLACK_VLESS_RUS_FILTERED.txt MOBILE_BYPASS_FILTERED.txt
+        git diff --staged --quiet || git commit -m "Update filtered proxies"
+        git push
