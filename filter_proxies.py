@@ -19,7 +19,7 @@ SUBSCRIPTIONS = [
     }
 ]
 
-TOP_N = 10
+TOP_N = 5
 TIMEOUT = 3
 MAX_WORKERS = 20
 # -----------------
