@@ -1,72 +1,56 @@
 import requests
 import time
-import subprocess
 from base64 import b64decode, b64encode
 
 print("=" * 50)
-print("Starting proxy filter with curl test...")
+print("Starting proxy filter (HTTP test)...")
 print("=" * 50)
 
 SUBSCRIPTION_URL = "https://raw.githack.com/igareck/vpn-configs-for-russia/main/BLACK_VLESS_RUS_mobile.txt"
 OUTPUT_FILE = "BLACK_VLESS_RUS_FILTERED.txt"
-TOP_N = 10
-TIMEOUT = 10
-TEST_URL = "http://yandex.ru"
+TOP_N = 15
+TIMEOUT = 8
+TEST_URL = "http://google.com"
 
-def test_proxy_with_curl(proxy_line):
-    """Test proxy using curl command with SOCKS5"""
+# Разрешённые страны
+ALLOWED_COUNTRIES = [
+    "Austria", "Germany", "Netherlands", 
+    "Finland", "Poland", "Armenia", 
+    "Hungary", "Turkey"
+]
+
+def test_proxy_http(proxy_line):
+    """Test proxy by making HTTP request through it"""
     try:
-        # Parse proxy URL to extract host and port
-        if "://" not in proxy_line:
-            return None
+        # Create proxy dict
+        proxies = {
+            'http': proxy_line,
+            'https': proxy_line
+        }
         
-        protocol = proxy_line.split("://")[0]
-        rest = proxy_line.split("://")[1]
-        
-        # Extract host:port
-        if "@" in rest:
-            host_port = rest.split("@")[-1]
-        else:
-            host_port = rest
-        
-        # Remove path and query params
-        host_port = host_port.split("/")[0].split("?")[0]
-        
-        if ":" not in host_port:
-            return None
-        
-        host, port = host_port.rsplit(":", 1)
-        
-        # Build curl command with SOCKS5 proxy
-        cmd = [
-            'curl',
-            '-x', f'socks5://{host}:{port}',
-            '--max-time', str(TIMEOUT),
-            '-o', '/dev/null',
-            '-w', '%{http_code}',
-            '-s',
-            TEST_URL
-        ]
-        
+        # Make request through proxy
         start = time.time()
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=TIMEOUT + 5)
+        response = requests.get(
+            TEST_URL, 
+            proxies=proxies, 
+            timeout=TIMEOUT,
+            allow_redirects=True
+        )
         latency = int((time.time() - start) * 1000)
         
-        # Check if curl succeeded (HTTP 200 or 301/302 for redirects)
-        if result.returncode == 0 and result.stdout.strip() in ['200', '301', '302']:
+        # Check if we got a response
+        if response.status_code in [200, 301, 302]:
             return latency
         else:
             return None
             
-    except Exception as e:
+    except Exception:
         return None
 
 def main():
     print("Step 1: Downloading subscription...")
     try:
         response = requests.get(SUBSCRIPTION_URL, timeout=30)
-        print("Status:", response.status_code)
-        
         if response.status_code != 200:
             print("ERROR: Failed to download")
             return
@@ -74,10 +58,8 @@ def main():
         try:
             decoded = b64decode(response.text.strip()).decode('utf-8', errors='ignore')
             proxy_lines = decoded.strip().split('\n')
-            print("Decoded from base64")
         except:
             proxy_lines = response.text.strip().split('\n')
-            print("Using raw text")
         
         print("Total lines:", len(proxy_lines))
         
@@ -85,21 +67,40 @@ def main():
         print("ERROR:", str(e))
         return
 
-    print("Step 2: Testing proxies with curl...")
-    results = []
+    print("Step 2: Filtering by country...")
+    filtered_lines = []
     
-    for i, line in enumerate(proxy_lines, 1):
+    for line in proxy_lines:
         line = line.strip()
         if not line or line.startswith('#'):
             continue
         
+        for country in ALLOWED_COUNTRIES:
+            if country in line:
+                filtered_lines.append(line)
+                break
+    
+    print("Filtered proxies:", len(filtered_lines))
+
+    if not filtered_lines:
+        print("ERROR: No proxies from allowed countries")
+        return
+
+    print("Step 3: Testing proxies via HTTP...")
+    results = []
+    
+    for i, line in enumerate(filtered_lines, 1):
         name = line.split("://")[0] if "://" in line else "proxy"
         if "#" in line:
             name = line.split("#")[-1]
         
         print(i, "Testing:", name, "...", end=" ", flush=True)
         
-        latency = test_proxy_with_curl(line)
+        # Try 2 times
+        latency = test_proxy_http(line)
+        if latency is None:
+            time.sleep(0.5)
+            latency = test_proxy_http(line)
         
         if latency is not None:
             results.append((line, latency, name))
@@ -113,16 +114,16 @@ def main():
         print("ERROR: No working proxies found")
         return
 
-    print("Step 3: Sorting by latency...")
+    print("Step 4: Sorting...")
     results.sort(key=lambda x: x[1])
 
     top_proxies = results[:TOP_N]
 
-    print("Step 4: Top", TOP_N, "working proxies:")
+    print("Step 5: Top", TOP_N, "proxies:")
     for i, (proxy, latency, name) in enumerate(top_proxies, 1):
         print(i, name, "-", latency, "ms")
 
-    print("Step 5: Saving...")
+    print("Step 6: Saving...")
     try:
         output_lines = [proxy for proxy, _, _ in top_proxies]
         output_text = '\n'.join(output_lines)
