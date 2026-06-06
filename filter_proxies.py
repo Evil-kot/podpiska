@@ -2,20 +2,44 @@ import requests
 import time
 import socket
 import ssl
-import subprocess
 from base64 import b64decode, b64encode
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 print("=" * 50)
-print("Starting proxy filter with curl test...")
+print("Starting proxy filter with country filter...")
 print("=" * 50)
 
 SUBSCRIPTION_URL = "https://raw.githack.com/igareck/vpn-configs-for-russia/main/BLACK_VLESS_RUS_mobile.txt"
 OUTPUT_FILE = "BLACK_VLESS_RUS_FILTERED.txt"
 TOP_N = 5
-TIMEOUT = 8
+TIMEOUT = 3
 MAX_WORKERS = 20
 TEST_SNI = "ya.ru"
+
+# Разрешённые страны (те, что работают из России)
+ALLOWED_COUNTRIES = [
+    "Austria", "Germany", "Netherlands", 
+    "Finland", "Poland", "Armenia", 
+    "Hungary", "Turkey", "Czech",
+    "France", "Sweden", "Norway",
+    "Denmark", "Switzerland", "Italy",
+    "Spain", "UK", "United Kingdom",
+    "Belgium", "Latvia", "Lithuania",
+    "Estonia", "Romania", "Bulgaria",
+    "Greece", "Serbia", "Croatia",
+    "Slovakia", "Slovenia", "Luxembourg"
+]
+
+# Исключаем страны (те, что НЕ работают из России)
+EXCLUDED_COUNTRIES = [
+    "United States", "USA", "US",
+    "Canada", "CA",
+    "Australia", "AU",
+    "Japan", "JP",
+    "Singapore", "SG",
+    "Hong Kong", "HK",
+    "South Korea", "KR"
+]
 
 def test_with_sni(host, port):
     """Test TCP connection with SNI"""
@@ -37,28 +61,26 @@ def test_with_sni(host, port):
     except:
         return None
 
-def test_proxy_with_curl(line):
-    """Test proxy using curl to ya.ru"""
-    try:
-        # Пробуем открыть ya.ru через прокси с помощью curl
-        cmd = [
-            'curl',
-            '-x', line.strip(),
-            '--max-time', '5',
-            '-o', '/dev/null',
-            '-w', '%{http_code}',
-            '-s',
-            'http://ya.ru'
-        ]
-        
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=7)
-        
-        # Если curl вернул 200, 301 или 302 — прокси работает
-        if result.returncode == 0 and result.stdout.strip() in ['200', '301', '302']:
+def filter_by_country(line):
+    """Проверяем, разрешена ли страна для этого прокси"""
+    # Извлекаем название из строки (после #)
+    if "#" not in line:
+        return False
+    
+    name = line.split("#")[-1].strip()
+    
+    # Проверяем на наличие в списке исключений
+    for excluded in EXCLUDED_COUNTRIES:
+        if excluded.lower() in name.lower():
+            return False
+    
+    # Проверяем на наличие в списке разрешённых
+    for allowed in ALLOWED_COUNTRIES:
+        if allowed.lower() in name.lower():
             return True
-        return False
-    except:
-        return False
+    
+    # Если страна не определена — пропускаем
+    return False
 
 def test_proxy(line):
     """Test single proxy"""
@@ -68,6 +90,10 @@ def test_proxy(line):
     name = line.split("://")[0]
     if "#" in line:
         name = line.split("#")[-1]
+    
+    # Проверяем страну
+    if not filter_by_country(line):
+        return None
     
     parts = line.split("://")[1]
     if "@" in parts:
@@ -86,18 +112,12 @@ def test_proxy(line):
     except:
         port = 443
     
-    # Сначала TCP тест с SNI
-    tcp_latency = test_with_sni(host, port)
+    # Тестируем с SNI
+    latency = test_with_sni(host, port)
     
-    if tcp_latency is None:
-        return None
-    
-    # Затем проверка через curl
-    if not test_proxy_with_curl(line):
-        return None
-    
-    # Возвращаем TCP latency (curl медленный для точных замеров)
-    return (line, tcp_latency, name)
+    if latency:
+        return (line, latency, name)
+    return None
 
 def main():
     print("Step 1: Downloading subscription...")
@@ -119,7 +139,11 @@ def main():
         print(f"ERROR: {str(e)}")
         return
 
-    print(f"Step 2: Testing proxies (TCP + curl)...")
+    print("Step 2: Filtering by country...")
+    filtered_count = sum(1 for line in proxy_lines if filter_by_country(line))
+    print(f"  Allowed countries: {filtered_count} proxies")
+
+    print(f"Step 3: Testing with SNI={TEST_SNI} (parallel, {MAX_WORKERS} workers)...")
     start_time = time.time()
     
     results = []
@@ -146,16 +170,16 @@ def main():
         print("ERROR: No working proxies found")
         return
 
-    print("Step 3: Sorting by latency...")
+    print("Step 4: Sorting by latency...")
     results.sort(key=lambda x: x[1])
 
     top_proxies = results[:TOP_N]
 
-    print(f"Step 4: Top {TOP_N} proxies:")
+    print(f"Step 5: Top {TOP_N} proxies:")
     for i, (proxy, latency, name) in enumerate(top_proxies, 1):
         print(f"  {i}. {name} - {latency}ms")
 
-    print("Step 5: Saving...")
+    print("Step 6: Saving...")
     try:
         output_lines = [proxy for proxy, _, _ in top_proxies]
         output_text = '\n'.join(output_lines)
