@@ -6,7 +6,7 @@ from base64 import b64decode, b64encode
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 print("=" * 50)
-print("Starting proxy filter with SNI + HTTP test...")
+print("Starting proxy filter with HTTP test...")
 print("=" * 50)
 
 SUBSCRIPTION_URL = "https://raw.githack.com/igareck/vpn-configs-for-russia/main/BLACK_VLESS_RUS_mobile.txt"
@@ -14,12 +14,10 @@ OUTPUT_FILE = "BLACK_VLESS_RUS_FILTERED.txt"
 TOP_N = 5
 TIMEOUT = 3
 MAX_WORKERS = 20
-
-# SNI для тестирования
 TEST_SNI = "ya.ru"
 
 def test_with_sni(host, port):
-    """Test TCP connection with specific SNI"""
+    """Test TCP connection with SNI"""
     try:
         context = ssl.create_default_context()
         context.check_hostname = False
@@ -27,7 +25,6 @@ def test_with_sni(host, port):
         
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(TIMEOUT)
-        
         ssock = context.wrap_socket(sock, server_hostname=TEST_SNI)
         
         start = time.time()
@@ -36,6 +33,29 @@ def test_with_sni(host, port):
         latency = int((time.time() - start) * 1000)
         
         return latency
+    except:
+        return None
+
+def test_proxy_http(line, host, port):
+    """Test proxy by making HTTP request through it"""
+    try:
+        # Создаём proxy URL для requests
+        # Формат зависит от протокола (vless, vmess, trojan и т.д.)
+        proxy_url = line.strip()
+        
+        proxies = {
+            'http': proxy_url,
+            'https': proxy_url
+        }
+        
+        # Пробуем открыть ya.ru через прокси
+        start = time.time()
+        response = requests.get("http://ya.ru", proxies=proxies, timeout=5, allow_redirects=True)
+        latency = int((time.time() - start) * 1000)
+        
+        if response.status_code in [200, 301, 302]:
+            return latency
+        return None
     except:
         return None
 
@@ -65,11 +85,20 @@ def test_proxy(line):
     except:
         port = 443
     
-    latency = test_with_sni(host, port)
+    # Сначала TCP тест с SNI
+    tcp_latency = test_with_sni(host, port)
     
-    if latency:
-        return (line, latency, name)
-    return None
+    if tcp_latency is None:
+        return None
+    
+    # Затем HTTP тест через прокси
+    http_latency = test_proxy_http(line, host, port)
+    
+    if http_latency is None:
+        return None
+    
+    # Возвращаем HTTP latency (более реалистичный)
+    return (line, http_latency, name)
 
 def main():
     print("Step 1: Downloading subscription...")
@@ -91,7 +120,7 @@ def main():
         print(f"ERROR: {str(e)}")
         return
 
-    print(f"Step 2: Testing with SNI={TEST_SNI} (parallel, {MAX_WORKERS} workers)...")
+    print(f"Step 2: Testing proxies (TCP + HTTP)...")
     start_time = time.time()
     
     results = []
