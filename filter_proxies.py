@@ -2,17 +2,18 @@ import requests
 import time
 import socket
 import ssl
+import subprocess
 from base64 import b64decode, b64encode
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 print("=" * 50)
-print("Starting proxy filter with HTTP test...")
+print("Starting proxy filter with curl test...")
 print("=" * 50)
 
 SUBSCRIPTION_URL = "https://raw.githack.com/igareck/vpn-configs-for-russia/main/BLACK_VLESS_RUS_mobile.txt"
 OUTPUT_FILE = "BLACK_VLESS_RUS_FILTERED.txt"
 TOP_N = 5
-TIMEOUT = 3
+TIMEOUT = 8
 MAX_WORKERS = 20
 TEST_SNI = "ya.ru"
 
@@ -36,28 +37,28 @@ def test_with_sni(host, port):
     except:
         return None
 
-def test_proxy_http(line, host, port):
-    """Test proxy by making HTTP request through it"""
+def test_proxy_with_curl(line):
+    """Test proxy using curl to ya.ru"""
     try:
-        # Создаём proxy URL для requests
-        # Формат зависит от протокола (vless, vmess, trojan и т.д.)
-        proxy_url = line.strip()
+        # Пробуем открыть ya.ru через прокси с помощью curl
+        cmd = [
+            'curl',
+            '-x', line.strip(),
+            '--max-time', '5',
+            '-o', '/dev/null',
+            '-w', '%{http_code}',
+            '-s',
+            'http://ya.ru'
+        ]
         
-        proxies = {
-            'http': proxy_url,
-            'https': proxy_url
-        }
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=7)
         
-        # Пробуем открыть ya.ru через прокси
-        start = time.time()
-        response = requests.get("http://ya.ru", proxies=proxies, timeout=5, allow_redirects=True)
-        latency = int((time.time() - start) * 1000)
-        
-        if response.status_code in [200, 301, 302]:
-            return latency
-        return None
+        # Если curl вернул 200, 301 или 302 — прокси работает
+        if result.returncode == 0 and result.stdout.strip() in ['200', '301', '302']:
+            return True
+        return False
     except:
-        return None
+        return False
 
 def test_proxy(line):
     """Test single proxy"""
@@ -91,14 +92,12 @@ def test_proxy(line):
     if tcp_latency is None:
         return None
     
-    # Затем HTTP тест через прокси
-    http_latency = test_proxy_http(line, host, port)
-    
-    if http_latency is None:
+    # Затем проверка через curl
+    if not test_proxy_with_curl(line):
         return None
     
-    # Возвращаем HTTP latency (более реалистичный)
-    return (line, http_latency, name)
+    # Возвращаем TCP latency (curl медленный для точных замеров)
+    return (line, tcp_latency, name)
 
 def main():
     print("Step 1: Downloading subscription...")
@@ -120,7 +119,7 @@ def main():
         print(f"ERROR: {str(e)}")
         return
 
-    print(f"Step 2: Testing proxies (TCP + HTTP)...")
+    print(f"Step 2: Testing proxies (TCP + curl)...")
     start_time = time.time()
     
     results = []
