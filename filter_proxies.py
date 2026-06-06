@@ -10,7 +10,7 @@ print("=" * 50)
 
 SUBSCRIPTION_URL = "https://raw.githack.com/igareck/vpn-configs-for-russia/main/BLACK_VLESS_RUS_mobile.txt"
 OUTPUT_FILE = "BLACK_VLESS_RUS_FILTERED.txt"
-TOP_N = 10
+TOP_N = 5
 TIMEOUT = 3
 MAX_WORKERS = 20
 
