@@ -15,8 +15,8 @@ TIMEOUT = 3
 MAX_WORKERS = 20
 
 # SNI для тестирования (тот, что показал лучший пинг)
-TEST_SNI = "api-maps.yandex.ru"
-TEST_HOST = "api-maps.yandex.ru"
+TEST_SNI = "ya.ru"
+TEST_HOST = "ya.ru"
 TEST_PORT = 443
 
 def test_with_sni(host, port):
