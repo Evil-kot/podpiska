@@ -9,7 +9,7 @@ print("=" * 50)
 print("Starting proxy filter with country filter...")
 print("=" * 50)
 
-SUBSCRIPTION_URL = "https://raw.githack.com/igareck/vpn-configs-for-russia/main/BLACK_VLESS_RUS_mobile.txt"
+SUBSCRIPTION_URL = "https://bitbucket.org/igareck/vpn-configs-for-russia/raw/18863daa94350157386401e76bec3cf8bfbc55e2/BLACK_VLESS_RUS_mobile.txt"
 OUTPUT_FILE = "BLACK_VLESS_RUS_FILTERED.txt"
 TOP_N = 5
 TIMEOUT = 3
