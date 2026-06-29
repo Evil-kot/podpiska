@@ -30,6 +30,7 @@ ALLOWED_COUNTRIES = [
     "Slovakia", "Slovenia", "Luxembourg"
 ]
 
+# Исключаем страны
 EXCLUDED_COUNTRIES = [
     "United States", "USA", "US",
     "Canada", "CA",
@@ -63,28 +64,60 @@ def test_with_sni(host, port):
 def parse_proxy_line(line):
     """Parse proxy line to extract host and port"""
     if "://" not in line:
-        # Hysteria может быть в другом формате
-        # Попробуем извлечь host:port напрямую
         return None, None
     
-    protocol = line.split("://")[0].lower()
     rest = line.split("://")[1]
     
-    # Извлекаем host:port
     if "@" in rest:
         host_port = rest.split("@")[-1]
     else:
         host_port = rest
     
-    # Убираем параметры
     host_port = host_port.split("/")[0].split("?")[0].split("#")[0]
     
     if ":" not in host_port:
         return None, None
     
-    host, port = host_port.rsplit(":", 1)        port = 443
+    host, port = host_port.rsplit(":", 1)
     
-    # Тестируем с SNI
+    try:
+        port = int(port)
+    except:
+        port = 443
+    
+    return host, port
+
+def filter_by_country(line):
+    """Проверяем, разрешена ли страна"""
+    if "#" not in line:
+        return False
+    
+    name = line.split("#")[-1].strip()
+    
+    for excluded in EXCLUDED_COUNTRIES:
+        if excluded.lower() in name.lower():
+            return False
+    
+    for allowed in ALLOWED_COUNTRIES:
+        if allowed.lower() in name.lower():
+            return True
+    
+    return False
+
+def test_proxy(line):
+    """Test single proxy"""
+    if not filter_by_country(line):
+        return None
+    
+    host, port = parse_proxy_line(line)
+    
+    if not host or not port:
+        return None
+    
+    name = line.split("://")[0] if "://" in line else "unknown"
+    if "#" in line:
+        name = line.split("#")[-1]
+    
     latency = test_with_sni(host, port)
     
     if latency:
@@ -93,6 +126,8 @@ def parse_proxy_line(line):
 
 def main():
     print("Step 1: Downloading subscription...")
+    print(f"  URL: {SUBSCRIPTION_URL}")
+    
     try:
         response = requests.get(SUBSCRIPTION_URL, timeout=30)
         if response.status_code != 200:
@@ -102,8 +137,10 @@ def main():
         try:
             decoded = b64decode(response.text.strip()).decode('utf-8', errors='ignore')
             proxy_lines = decoded.strip().split('\n')
+            print("  Decoded from base64")
         except:
             proxy_lines = response.text.strip().split('\n')
+            print("  Using raw text")
         
         print(f"  Found {len(proxy_lines)} proxies")
         
@@ -132,7 +169,8 @@ def main():
                 results.append(result)
                 print(f"  [{completed}/{len(proxy_lines)}] OK {result[1]}ms: {result[2]}")
             else:
-                print(f"  [{completed}/{len(proxy_lines)}] FAIL")
+                if completed % 10 == 0:
+                    print(f"  [{completed}/{len(proxy_lines)}] ...")
 
     elapsed = time.time() - start_time
     print(f"\n  Tested in {elapsed:.1f} seconds")
