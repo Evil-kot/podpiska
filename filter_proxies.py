@@ -6,17 +6,17 @@ from base64 import b64decode, b64encode
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 print("=" * 50)
-print("Starting proxy filter with country filter...")
+print("Starting proxy filter (multi-protocol)...")
 print("=" * 50)
 
-SUBSCRIPTION_URL = "https://bitbucket.org/igareck/vpn-configs-for-russia/raw/18863daa94350157386401e76bec3cf8bfbc55e2/BLACK_VLESS_RUS_mobile.txt"
+SUBSCRIPTION_URL = "https://raw.githack.com/igareck/vpn-configs-for-russia/main/BLACK_SS%2BAll_RUS.txt"
 OUTPUT_FILE = "BLACK_VLESS_RUS_FILTERED.txt"
 TOP_N = 5
 TIMEOUT = 3
 MAX_WORKERS = 20
 TEST_SNI = "ya.ru"
 
-# Разрешённые страны (те, что работают из России)
+# Разрешённые страны
 ALLOWED_COUNTRIES = [
     "Austria", "Germany", "Netherlands", 
     "Finland", "Poland", "Armenia", 
@@ -30,7 +30,6 @@ ALLOWED_COUNTRIES = [
     "Slovakia", "Slovenia", "Luxembourg"
 ]
 
-# Исключаем страны (те, что НЕ работают из России)
 EXCLUDED_COUNTRIES = [
     "United States", "USA", "US",
     "Canada", "CA",
@@ -61,56 +60,29 @@ def test_with_sni(host, port):
     except:
         return None
 
-def filter_by_country(line):
-    """Проверяем, разрешена ли страна для этого прокси"""
-    # Извлекаем название из строки (после #)
-    if "#" not in line:
-        return False
-    
-    name = line.split("#")[-1].strip()
-    
-    # Проверяем на наличие в списке исключений
-    for excluded in EXCLUDED_COUNTRIES:
-        if excluded.lower() in name.lower():
-            return False
-    
-    # Проверяем на наличие в списке разрешённых
-    for allowed in ALLOWED_COUNTRIES:
-        if allowed.lower() in name.lower():
-            return True
-    
-    # Если страна не определена — пропускаем
-    return False
-
-def test_proxy(line):
-    """Test single proxy"""
+def parse_proxy_line(line):
+    """Parse proxy line to extract host and port"""
     if "://" not in line:
-        return None
+        # Hysteria может быть в другом формате
+        # Попробуем извлечь host:port напрямую
+        return None, None
     
-    name = line.split("://")[0]
-    if "#" in line:
-        name = line.split("#")[-1]
+    protocol = line.split("://")[0].lower()
+    rest = line.split("://")[1]
     
-    # Проверяем страну
-    if not filter_by_country(line):
-        return None
-    
-    parts = line.split("://")[1]
-    if "@" in parts:
-        host_port = parts.split("@")[-1]
+    # Извлекаем host:port
+    if "@" in rest:
+        host_port = rest.split("@")[-1]
     else:
-        host_port = parts
+        host_port = rest
     
-    host_port = host_port.split("/")[0].split("?")[0]
+    # Убираем параметры
+    host_port = host_port.split("/")[0].split("?")[0].split("#")[0]
     
     if ":" not in host_port:
-        return None
+        return None, None
     
-    host, port = host_port.rsplit(":", 1)
-    try:
-        port = int(port)
-    except:
-        port = 443
+    host, port = host_port.rsplit(":", 1)        port = 443
     
     # Тестируем с SNI
     latency = test_with_sni(host, port)
